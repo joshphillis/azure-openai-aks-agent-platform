@@ -1,99 +1,276 @@
-# Azure AI Platform
+# 🚀 Azure AI Platform  
+*A secure, event‑driven, multi‑agent AI platform running on a private AKS cluster with zero‑trust identity, GitOps deployment, and enterprise‑grade observability.*
 
-A secure, event-driven multi-agent AI platform on Azure Kubernetes Service. Built to demonstrate enterprise-grade AI infrastructure patterns: private networking, zero-trust identity, GitOps deployment, and operational observability.
+---
 
-## What this is
+## 🌐 What This Is
 
-Four AI agents running as independent microservices on a private AKS cluster, coordinating work through Azure Service Bus:
+A production‑grade architecture demonstrating how to run **multi‑agent AI workloads** on Azure using:
 
-- **Orchestrator** — receives task requests, decomposes them via GPT-4o, fans work out to specialist agents
-- **Research agent** — performs structured research and summarisation
-- **Analysis agent** — reasons over findings, identifies patterns, produces recommendations
-- **Writer agent** — formats and delivers polished output
+- Private AKS  
+- Azure OpenAI (GPT‑4o)  
+- Azure Service Bus (event‑driven fan‑out/fan‑in)  
+- Workload identity federation (no secrets)  
+- GitOps with Flux CD  
+- Terraform modular IaC  
 
-No agent calls another directly. All coordination is event-driven via Service Bus topics.
+The platform consists of **four independent AI agents**, each deployed as a microservice:
 
-## Key technical decisions
+- **Orchestrator** — receives tasks, decomposes them with GPT‑4o, publishes work to Service Bus  
+- **Research Agent** — performs structured research and summarization  
+- **Analysis Agent** — identifies patterns, insights, and recommendations  
+- **Writer Agent** — produces polished, human‑readable output  
+
+All coordination is **event‑driven**. No agent calls another directly.
+
+---
+
+# 📐 Architecture
+
+## 1. High‑Level Multi‑Agent Flow
+
+```mermaid
+flowchart LR
+    Client[Client Request] --> Orchestrator[Orchestrator\n(FastAPI + Azure OpenAI)]
+    Orchestrator --> SB[Azure Service Bus\nTopics & Subscriptions]
+
+    SB --> R[Research Agent]
+    SB --> A[Analysis Agent]
+    SB --> W[Writer Agent]
+
+    R --> SB
+    A --> SB
+    W --> SB
+
+    SB --> Orchestrator
+    Orchestrator --> Client
+```
+
+---
+
+## 2. AKS + VNet + Private Endpoints Layout
+
+```mermaid
+flowchart TB
+
+    subgraph VNET[Azure Virtual Network (Private)]
+        subgraph AKS[AKS Private Cluster]
+            Orchestrator[Orchestrator Deployment\nWorkload Identity]
+            Research[Research Agent]
+            Analysis[Analysis Agent]
+            Writer[Writer Agent]
+
+            Orchestrator -->|Publishes Tasks| SBTopic[(Service Bus Topic)]
+            SBTopic --> Research
+            SBTopic --> Analysis
+            SBTopic --> Writer
+
+            Research -->|Publishes Results| SBTopic
+            Analysis --> SBTopic
+            Writer --> SBTopic
+        end
+
+        subgraph PrivateEndpoints[Private Endpoints]
+            PEP_SB[Service Bus\nPrivate Endpoint]
+            PEP_KV[Key Vault\nPrivate Endpoint]
+            PEP_AOAI[Azure OpenAI\nPrivate Endpoint]
+        end
+    end
+
+    Orchestrator --> PEP_AOAI
+    Orchestrator --> PEP_KV
+    Research --> PEP_KV
+    Analysis --> PEP_KV
+    Writer --> PEP_KV
+
+    SBTopic --> PEP_SB
+
+    Client[Client] -->|HTTPS| APIM[API Management (Optional)]
+    APIM --> Orchestrator
+```
+
+---
+
+## 3. Event‑Driven Sequence Diagram (Service Bus)
+
+```mermaid
+sequenceDiagram
+    autonumber
+
+    participant C as Client
+    participant O as Orchestrator
+    participant SB as Service Bus Topic
+    participant R as Research Agent
+    participant A as Analysis Agent
+    participant W as Writer Agent
+
+    C->>O: Submit task request
+    O->>O: Decompose task via GPT‑4o
+    O->>SB: Publish task messages
+
+    SB->>R: Deliver research task
+    R->>SB: Publish research results
+
+    SB->>A: Deliver analysis task
+    A->>SB: Publish analysis results
+
+    SB->>W: Deliver writing task
+    W->>SB: Publish final output
+
+    SB->>O: Deliver all results
+    O->>C: Return aggregated response
+```
+
+---
+
+## 4. GitOps Flow (Flux CD Reconciliation)
+
+```mermaid
+flowchart LR
+
+    Dev[Developer Commit\n(Push to GitHub)] --> Repo[GitHub Repo]
+
+    Repo --> Flux[Flux GitRepository\n(Cluster Watches Git)]
+    Flux --> Kustomize[Kustomization\nApply Manifests]
+
+    Kustomize --> AKS[AKS Cluster\nDeployments, SA, Secrets, Policies]
+
+    AKS --> Status[Health + Drift Status]
+    Status --> Flux
+
+    Flux --> Repo
+```
+
+---
+
+## 5. Workload Identity Federation (AKS → Azure)
+
+```mermaid
+flowchart LR
+
+    subgraph GitHub[GitHub Actions]
+        GH[OIDC Token\n(GitHub Workflow)]
+    end
+
+    subgraph AzureAD[Microsoft Entra ID]
+        FEDCRED[Federated Credential\n(Workload Identity)]
+        SPN[Managed Identity / Service Principal]
+    end
+
+    subgraph AKS[AKS Cluster]
+        SA[ServiceAccount\n(azure.workload.identity)]
+        POD[Agent Pod\n(Orchestrator / Worker)]
+    end
+
+    subgraph AzureResources[Azure Resources]
+        KV[Key Vault]
+        SB[Service Bus]
+        AOAI[Azure OpenAI]
+    end
+
+    GH --> FEDCRED
+    FEDCRED --> SPN
+
+    SA --> SPN
+    POD --> SA
+
+    POD --> KV
+    POD --> SB
+    POD --> AOAI
+```
+
+---
+
+# 🔑 Key Technical Decisions
 
 | Decision | Choice | Why |
 |---|---|---|
-| Auth model | Workload identity federation | No stored credentials anywhere in the platform |
-| Network | Private endpoints + NSG deny-all | Zero public surface area for Azure services |
-| Secrets | Key Vault CSI driver | Secrets mounted at pod start, rotated without restarts |
-| Deployment | Flux CD (GitOps) | Cluster state is always reconciled from Git |
-| IaC | Terraform modules | Every resource reproducible, environment parity guaranteed |
-| Messaging | Service Bus Premium | Private endpoint, dead-letter queues, duplicate detection |
+| Auth model | Workload identity federation | Zero stored credentials |
+| Network | Private endpoints + NSG deny‑all | No public surface area |
+| Secrets | Key Vault CSI driver | Mounted at pod start, rotated seamlessly |
+| Deployment | Flux CD (GitOps) | Cluster state reconciled from Git |
+| IaC | Terraform modules | Reproducible, environment‑consistent |
+| Messaging | Service Bus Premium | Private endpoint, DLQs, duplicate detection |
 
-## Repository structure
+---
+
+# 📁 Repository Structure
 
 ```
 .
-├── .github/
-│   └── workflows/
-│       ├── infra.yml          # Terraform pipeline (validate → scan → plan → apply)
-│       └── agents.yml         # Agent image pipeline (build → scan → push → deploy)
+├── .github/workflows/
+│   ├── infra.yml
+│   └── agents.yml
 ├── agents/
-│   ├── orchestrator/          # FastAPI + Azure OpenAI + Service Bus
+│   ├── orchestrator/
 │   ├── research-agent/
 │   ├── analysis-agent/
 │   └── writer-agent/
 ├── docs/
-│   └── architecture.md        # Design decisions and ADRs
+│   └── architecture.md
 ├── infra/
 │   ├── modules/
-│   │   ├── networking/        # VNet, subnets, NSGs, private DNS zones
-│   │   ├── aks/               # Private cluster, node pools, Flux, workload identity
-│   │   ├── keyvault/          # Vault, managed identities, federated credentials
-│   │   ├── openai/            # Azure OpenAI, GPT-4o + embeddings, private endpoint
-│   │   ├── servicebus/        # Premium namespace, topics, subscriptions, RBAC
-│   │   └── monitoring/        # Alerts, cost budget, saved queries
-│   └── environments/
-│       └── dev/               # Dev entrypoint — calls all modules
+│   │   ├── networking/
+│   │   ├── aks/
+│   │   ├── keyvault/
+│   │   ├── openai/
+│   │   ├── servicebus/
+│   │   └── monitoring/
+│   └── environments/dev/
 └── k8s/
-    ├── base/                  # Namespace, ServiceAccounts, Deployments, NetworkPolicies
-    ├── overlays/dev/          # Kustomize dev overlay (image tags updated by CI)
-    └── flux/                  # GitRepository + Kustomization for Flux CD
+    ├── base/
+    ├── overlays/dev/
+    └── flux/
 ```
 
-## Prerequisites
+---
 
-- Azure subscription with Owner or Contributor + User Access Administrator
-- Azure CLI: `az login`
-- Terraform >= 1.7
-- kubectl
-- Azure OpenAI quota in your target region (`eastus2` recommended)
+# 🧰 Prerequisites
 
-## Getting started
+- Azure subscription (Owner or Contributor + UAA)  
+- Azure CLI  
+- Terraform ≥ 1.7  
+- kubectl  
+- Azure OpenAI quota (recommended: `eastus2`)  
 
-### 1. Bootstrap Terraform state storage
+---
+
+# 🚀 Getting Started
+
+## 1. Bootstrap Terraform State
 
 ```bash
 az group create --name rg-tfstate --location eastus2
 az storage account create \
-  --name sttfstate<your-suffix> \
+  --name sttfstate<suffix> \
   --resource-group rg-tfstate \
   --sku Standard_LRS \
   --allow-blob-public-access false
 
 az storage container create \
   --name tfstate \
-  --account-name sttfstate<your-suffix>
+  --account-name sttfstate<suffix>
 ```
 
-Uncomment and fill in the `backend "azurerm"` block in `infra/environments/dev/main.tf`.
+Enable the backend block in `infra/environments/dev/main.tf`.
 
-### 2. Fill in your values
+---
+
+## 2. Fill in Your Values
 
 ```bash
-# Your AAD object ID (for Key Vault Secrets Officer)
 az ad signed-in-user show --query id -o tsv
-
-# Edit infra/environments/dev/terraform.tfvars
-admin_principal_id = "<your-object-id>"
-alert_email        = "you@example.com"
 ```
 
-### 3. Deploy infrastructure
+Update:
+
+```
+infra/environments/dev/terraform.tfvars
+```
+
+---
+
+## 3. Deploy Infrastructure
 
 ```bash
 cd infra/environments/dev
@@ -102,58 +279,68 @@ terraform plan
 terraform apply
 ```
 
-### 4. Populate ServiceAccount annotations
+---
+
+## 4. Populate ServiceAccount Annotations
 
 ```bash
-# Get the managed identity client IDs Terraform created
 terraform output -json agent_identity_client_ids
 ```
 
-Update the `azure.workload.identity/client-id` annotations in `k8s/base/namespace.yaml` and `k8s/base/secret-provider-classes.yaml` with the values from the output.
+Update:
 
-### 5. Configure GitHub Actions secrets
+- `k8s/base/namespace.yaml`  
+- `k8s/base/secret-provider-classes.yaml`  
+
+---
+
+## 5. Configure GitHub Actions Secrets
 
 | Secret | Value |
 |---|---|
-| `AZURE_CLIENT_ID` | Service principal or managed identity client ID for CI |
-| `AZURE_TENANT_ID` | `az account show --query tenantId -o tsv` |
-| `AZURE_SUBSCRIPTION_ID` | `az account show --query id -o tsv` |
-| `TF_STATE_RG` | `rg-tfstate` |
-| `TF_STATE_SA` | `sttfstate<your-suffix>` |
-| `ADMIN_PRINCIPAL_ID` | Your AAD object ID |
-| `ALERT_EMAIL` | Your email address |
+| AZURE_CLIENT_ID | CI identity |
+| AZURE_TENANT_ID | Tenant ID |
+| AZURE_SUBSCRIPTION_ID | Subscription ID |
+| TF_STATE_RG | rg‑tfstate |
+| TF_STATE_SA | sttfstate<suffix> |
+| ADMIN_PRINCIPAL_ID | Your AAD object ID |
+| ALERT_EMAIL | Your email |
 
-### 6. Bootstrap Flux
+---
+
+## 6. Bootstrap Flux
 
 ```bash
 az aks get-credentials --resource-group rg-aiplatform-dev --name aks-aiplatform-dev
 
-# Create GitHub token secret for Flux
 kubectl create secret generic flux-github-token \
   --namespace flux-system \
   --from-literal=username=git \
   --from-literal=password=<your-github-pat>
 
-# Apply Flux manifests
 kubectl apply -f k8s/flux/gitrepository.yaml
 kubectl apply -f k8s/flux/kustomization-agents.yaml
 ```
 
-### 7. Submit a test task
+---
+
+## 7. Submit a Test Task
 
 ```bash
-# Port-forward to the orchestrator
 kubectl port-forward svc/orchestrator 8080:80 -n agents
 
-# Submit a task
 curl -X POST http://localhost:8080/tasks \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Analyse the impact of rising interest rates on commercial real estate"}'
-
-# Poll for results (use the job_id from the response)
-curl http://localhost:8080/tasks/<job-id>
 ```
 
-## Architecture
+---
 
-See [docs/architecture.md](docs/architecture.md) for the full design, component map, request flow, identity model, and architecture decision records.
+# 📚 Architecture Documentation
+
+See **docs/architecture.md** for:
+
+- Component map  
+- Identity model  
+- Request flow  
+- ADRs (architecture decision records)  
