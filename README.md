@@ -59,44 +59,41 @@ flowchart LR
 
 flowchart TB
 
-    subgraph VNET["Azure Virtual Network"]
-        subgraph AKS["AKS Private Cluster"]
-            ORCH["Orchestrator Pod"]
-            RES["Research Agent Pod"]
-            ANA["Analysis Agent Pod"]
-            WRI["Writer Agent Pod"]
+subgraph VNET["Azure Virtual Network"]
+subgraph AKS["AKS Private Cluster"]
+ORCH["Orchestrator Pod"]
+RES["Research Agent Pod"]
+ANA["Analysis Agent Pod"]
+WRI["Writer Agent Pod"]
+SBTopic["Service Bus Topic"]
 
-            ORCH --> SBTopic
-            SBTopic --> RES
-            SBTopic --> ANA
-            SBTopic --> WRI
+ORCH --> SBTopic
+SBTopic --> RES
+SBTopic --> ANA
+SBTopic --> WRI
 
-            RES --> SBTopic
-            ANA --> SBTopic
-            WRI --> SBTopic
-        end
+RES --> SBTopic
+ANA --> SBTopic
+WRI --> SBTopic
+end
 
-        subgraph PrivateEPs["Private Endpoints"]
-            PEP_SB["Service Bus PE"]
-            PEP_KV["Key Vault PE"]
-            PEP_AOAI["Azure OpenAI PE"]
-        end
-    end
+subgraph PrivateEPs["Private Endpoints"]
+PEP_SB["Service Bus PE"]
+PEP_KV["Key Vault PE"]
+PEP_AOAI["Azure OpenAI PE"]
+end
+end
 
-    ORCH --> PEP_AOAI
-    ORCH --> PEP_KV
-    RES --> PEP_KV
-    ANA --> PEP_KV
-    WRI --> PEP_KV
+ORCH --> PEP_AOAI
+ORCH --> PEP_KV
+RES --> PEP_KV
+ANA --> PEP_KV
+WRI --> PEP_KV
 
-    SBTopic --> PEP_SB
+SBTopic --> PEP_SB
 
-    Client --> APIM
-    APIM --> ORCH
-
-    Client["Client"]
-    APIM["API Management"]
-    SBTopic["Service Bus Topic"]
+Client["Client"] --> APIM["API Management"]
+APIM --> ORCH
 
 ---
 
