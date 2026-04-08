@@ -61,33 +61,41 @@ flowchart TB
 
 Client["Client"]
 APIM["API Management"]
+
 ORCH["Orchestrator Pod"]
 RES["Research Agent Pod"]
 ANA["Analysis Agent Pod"]
 WRI["Writer Agent Pod"]
+
 SBTopic["Service Bus Topic"]
+
 PEP_SB["Service Bus Private Endpoint"]
 PEP_KV["Key Vault Private Endpoint"]
 PEP_AOAI["Azure OpenAI Private Endpoint"]
 
-subgraph VNET["Azure Virtual Network"]
-    subgraph AKS["AKS Private Cluster"]
-        ORCH --> SBTopic
-        SBTopic --> RES
-        SBTopic --> ANA
-        SBTopic --> WRI
-
-        RES --> SBTopic
-        ANA --> SBTopic
-        WRI --> SBTopic
-    end
-
-    subgraph PrivateEndpoints["Private Endpoints"]
-        PEP_SB
-        PEP_KV
-        PEP_AOAI
-    end
+subgraph AKS_Cluster["AKS Private Cluster"]
+    ORCH
+    RES
+    ANA
+    WRI
 end
+
+subgraph Private_Endpoints["Private Endpoints"]
+    PEP_SB
+    PEP_KV
+    PEP_AOAI
+end
+
+Client --> APIM --> ORCH
+
+ORCH --> SBTopic
+SBTopic --> RES
+SBTopic --> ANA
+SBTopic --> WRI
+
+RES --> SBTopic
+ANA --> SBTopic
+WRI --> SBTopic
 
 ORCH --> PEP_AOAI
 ORCH --> PEP_KV
@@ -96,9 +104,6 @@ ANA --> PEP_KV
 WRI --> PEP_KV
 
 SBTopic --> PEP_SB
-
-Client --> APIM
-APIM --> ORCH
 
 ---
 
