@@ -57,51 +57,28 @@ flowchart LR
 
 ## 2. AKS + VNet + Private Endpoints Layout
 
+2. AKS + VNet + Private Endpoints Layout
 flowchart TB
 
-Client["Client"]
-APIM["API Management"]
+Client["Client"] APIM["API Management"]
 
-ORCH["Orchestrator Pod"]
-RES["Research Agent Pod"]
-ANA["Analysis Agent Pod"]
-WRI["Writer Agent Pod"]
+ORCH["Orchestrator Pod"] RES["Research Agent Pod"] ANA["Analysis Agent Pod"] WRI["Writer Agent Pod"]
 
 SBTopic["Service Bus Topic"]
 
-PEP_SB["Service Bus Private Endpoint"]
-PEP_KV["Key Vault Private Endpoint"]
-PEP_AOAI["Azure OpenAI Private Endpoint"]
+PEP_SB["Service Bus Private Endpoint"] PEP_KV["Key Vault Private Endpoint"] PEP_AOAI["Azure OpenAI Private Endpoint"]
 
-subgraph AKS_Cluster["AKS Private Cluster"]
-    ORCH
-    RES
-    ANA
-    WRI
-end
+subgraph AKS_Cluster["AKS Private Cluster"] ORCH RES ANA WRI end
 
-subgraph Private_Endpoints["Private Endpoints"]
-    PEP_SB
-    PEP_KV
-    PEP_AOAI
-end
+subgraph Private_Endpoints["Private Endpoints"] PEP_SB PEP_KV PEP_AOAI end
 
 Client --> APIM --> ORCH
 
-ORCH --> SBTopic
-SBTopic --> RES
-SBTopic --> ANA
-SBTopic --> WRI
+ORCH --> SBTopic SBTopic --> RES SBTopic --> ANA SBTopic --> WRI
 
-RES --> SBTopic
-ANA --> SBTopic
-WRI --> SBTopic
+RES --> SBTopic ANA --> SBTopic WRI --> SBTopic
 
-ORCH --> PEP_AOAI
-ORCH --> PEP_KV
-RES --> PEP_KV
-ANA --> PEP_KV
-WRI --> PEP_KV
+ORCH --> PEP_AOAI ORCH --> PEP_KV RES --> PEP_KV ANA --> PEP_KV WRI --> PEP_KV
 
 SBTopic --> PEP_SB
 
