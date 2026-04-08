@@ -57,48 +57,46 @@ flowchart LR
 
 ## 2. AKS + VNet + Private Endpoints Layout
 
-```mermaid
 flowchart TB
 
-    subgraph VNET[Azure Virtual Network]
-        subgraph AKS[AKS Private Cluster]
-            Orchestrator[Orchestrator Pod]
-            Research[Research Agent Pod]
-            Analysis[Analysis Agent Pod]
-            Writer[Writer Agent Pod]
+    subgraph VNET["Azure Virtual Network"]
+        subgraph AKS["AKS Private Cluster"]
+            ORCH["Orchestrator Pod"]
+            RES["Research Agent Pod"]
+            ANA["Analysis Agent Pod"]
+            WRI["Writer Agent Pod"]
 
-            Orchestrator --> SBTopic
-            SBTopic --> Research
-            SBTopic --> Analysis
-            SBTopic --> Writer
+            ORCH --> SBTopic
+            SBTopic --> RES
+            SBTopic --> ANA
+            SBTopic --> WRI
 
-            Research --> SBTopic
-            Analysis --> SBTopic
-            Writer --> SBTopic
+            RES --> SBTopic
+            ANA --> SBTopic
+            WRI --> SBTopic
         end
 
-        subgraph PrivateEPs[Private Endpoints]
-            PEP_SB[Service Bus PE]
-            PEP_KV[Key Vault PE]
-            PEP_AOAI[Azure OpenAI PE]
+        subgraph PrivateEPs["Private Endpoints"]
+            PEP_SB["Service Bus PE"]
+            PEP_KV["Key Vault PE"]
+            PEP_AOAI["Azure OpenAI PE"]
         end
     end
 
-    Orchestrator --> PEP_AOAI
-    Orchestrator --> PEP_KV
-    Research --> PEP_KV
-    Analysis --> PEP_KV
-    Writer --> PEP_KV
+    ORCH --> PEP_AOAI
+    ORCH --> PEP_KV
+    RES --> PEP_KV
+    ANA --> PEP_KV
+    WRI --> PEP_KV
 
     SBTopic --> PEP_SB
 
     Client --> APIM
-    APIM --> Orchestrator
+    APIM --> ORCH
 
-    Client[Client]
-    APIM[API Management (Optional)]
-    SBTopic[Service Bus Topic]
-```
+    Client["Client"]
+    APIM["API Management"]
+    SBTopic["Service Bus Topic"]
 
 ---
 
