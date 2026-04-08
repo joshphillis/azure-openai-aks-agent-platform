@@ -1,11 +1,11 @@
 # 🚀 Azure AI Platform  
-*A secure, event‑driven, multi‑agent AI platform running on a private AKS cluster with zero‑trust identity, GitOps deployment, and enterprise‑grade observability.*
+A secure, event‑driven, multi‑agent AI platform running on a private AKS cluster with zero‑trust identity, GitOps deployment, and enterprise‑grade observability.
 
 ---
 
 ## 🌐 What This Is
 
-A production‑grade architecture demonstrating how to run **multi‑agent AI workloads** on Azure using:
+A production‑grade architecture demonstrating how to run multi‑agent AI workloads on Azure using:
 
 - Private AKS  
 - Azure OpenAI (GPT‑4o)  
@@ -14,7 +14,7 @@ A production‑grade architecture demonstrating how to run **multi‑agent AI wo
 - GitOps with Flux CD  
 - Terraform modular IaC  
 
-The platform consists of **four independent AI agents**, each deployed as a microservice:
+The platform consists of four independent AI agents:
 
 - **Orchestrator** — receives tasks, decomposes them with GPT‑4o, publishes work to Service Bus  
 - **Research Agent** — performs structured research and summarization  
@@ -31,19 +31,26 @@ All coordination is **event‑driven**. No agent calls another directly.
 
 ```mermaid
 flowchart LR
-    Client[Client Request] --> Orchestrator[Orchestrator\n(FastAPI + Azure OpenAI)]
-    Orchestrator --> SB[Azure Service Bus\nTopics & Subscriptions]
+    Client --> Orchestrator
+    Orchestrator --> SB
 
-    SB --> R[Research Agent]
-    SB --> A[Analysis Agent]
-    SB --> W[Writer Agent]
+    SB --> Research
+    SB --> Analysis
+    SB --> Writer
 
-    R --> SB
-    A --> SB
-    W --> SB
+    Research --> SB
+    Analysis --> SB
+    Writer --> SB
 
     SB --> Orchestrator
     Orchestrator --> Client
+
+    Client[Client Request]
+    Orchestrator[Orchestrator]
+    SB[Service Bus Topic]
+    Research[Research Agent]
+    Analysis[Analysis Agent]
+    Writer[Writer Agent]
 ```
 
 ---
@@ -53,27 +60,27 @@ flowchart LR
 ```mermaid
 flowchart TB
 
-    subgraph VNET[Azure Virtual Network (Private)]
+    subgraph VNET[Azure Virtual Network]
         subgraph AKS[AKS Private Cluster]
-            Orchestrator[Orchestrator Deployment\nWorkload Identity]
-            Research[Research Agent]
-            Analysis[Analysis Agent]
-            Writer[Writer Agent]
+            Orchestrator[Orchestrator Pod]
+            Research[Research Agent Pod]
+            Analysis[Analysis Agent Pod]
+            Writer[Writer Agent Pod]
 
-            Orchestrator -->|Publishes Tasks| SBTopic[(Service Bus Topic)]
+            Orchestrator --> SBTopic
             SBTopic --> Research
             SBTopic --> Analysis
             SBTopic --> Writer
 
-            Research -->|Publishes Results| SBTopic
+            Research --> SBTopic
             Analysis --> SBTopic
             Writer --> SBTopic
         end
 
-        subgraph PrivateEndpoints[Private Endpoints]
-            PEP_SB[Service Bus\nPrivate Endpoint]
-            PEP_KV[Key Vault\nPrivate Endpoint]
-            PEP_AOAI[Azure OpenAI\nPrivate Endpoint]
+        subgraph PrivateEPs[Private Endpoints]
+            PEP_SB[Service Bus PE]
+            PEP_KV[Key Vault PE]
+            PEP_AOAI[Azure OpenAI PE]
         end
     end
 
@@ -85,13 +92,17 @@ flowchart TB
 
     SBTopic --> PEP_SB
 
-    Client[Client] -->|HTTPS| APIM[API Management (Optional)]
+    Client --> APIM
     APIM --> Orchestrator
+
+    Client[Client]
+    APIM[API Management (Optional)]
+    SBTopic[Service Bus Topic]
 ```
 
 ---
 
-## 3. Event‑Driven Sequence Diagram (Service Bus)
+## 3. Event‑Driven Sequence Diagram
 
 ```mermaid
 sequenceDiagram
@@ -99,14 +110,14 @@ sequenceDiagram
 
     participant C as Client
     participant O as Orchestrator
-    participant SB as Service Bus Topic
+    participant SB as Service Bus
     participant R as Research Agent
     participant A as Analysis Agent
     participant W as Writer Agent
 
-    C->>O: Submit task request
-    O->>O: Decompose task via GPT‑4o
-    O->>SB: Publish task messages
+    C->>O: Submit task
+    O->>O: Decompose via GPT-4o
+    O->>SB: Publish tasks
 
     SB->>R: Deliver research task
     R->>SB: Publish research results
@@ -123,22 +134,17 @@ sequenceDiagram
 
 ---
 
-## 4. GitOps Flow (Flux CD Reconciliation)
+## 4. GitOps Flow (Flux CD)
 
 ```mermaid
 flowchart LR
 
-    Dev[Developer Commit\n(Push to GitHub)] --> Repo[GitHub Repo]
-
-    Repo --> Flux[Flux GitRepository\n(Cluster Watches Git)]
-    Flux --> Kustomize[Kustomization\nApply Manifests]
-
-    Kustomize --> AKS[AKS Cluster\nDeployments, SA, Secrets, Policies]
-
-    AKS --> Status[Health + Drift Status]
+    Dev[Developer Commit] --> Repo[GitHub Repo]
+    Repo --> Flux[Flux GitRepository]
+    Flux --> Kustomize[Kustomization]
+    Kustomize --> AKS[AKS Cluster]
+    AKS --> Status[Cluster Status]
     Status --> Flux
-
-    Flux --> Repo
 ```
 
 ---
@@ -149,29 +155,29 @@ flowchart LR
 flowchart LR
 
     subgraph GitHub[GitHub Actions]
-        GH[OIDC Token\n(GitHub Workflow)]
+        GH[OIDC Token]
     end
 
-    subgraph AzureAD[Microsoft Entra ID]
-        FEDCRED[Federated Credential\n(Workload Identity)]
-        SPN[Managed Identity / Service Principal]
+    subgraph Entra[Microsoft Entra ID]
+        FED[Federated Credential]
+        MI[Managed Identity]
     end
 
     subgraph AKS[AKS Cluster]
-        SA[ServiceAccount\n(azure.workload.identity)]
-        POD[Agent Pod\n(Orchestrator / Worker)]
+        SA[ServiceAccount]
+        POD[Agent Pod]
     end
 
-    subgraph AzureResources[Azure Resources]
+    subgraph Azure[Azure Services]
         KV[Key Vault]
         SB[Service Bus]
         AOAI[Azure OpenAI]
     end
 
-    GH --> FEDCRED
-    FEDCRED --> SPN
+    GH --> FED
+    FED --> MI
 
-    SA --> SPN
+    SA --> MI
     POD --> SA
 
     POD --> KV
@@ -231,7 +237,7 @@ flowchart LR
 - Azure CLI  
 - Terraform ≥ 1.7  
 - kubectl  
-- Azure OpenAI quota (recommended: `eastus2`)  
+- Azure OpenAI quota (recommended: eastus2)  
 
 ---
 
@@ -302,7 +308,7 @@ Update:
 | AZURE_TENANT_ID | Tenant ID |
 | AZURE_SUBSCRIPTION_ID | Subscription ID |
 | TF_STATE_RG | rg‑tfstate |
-| TF_STATE_SA | sttfstate<suffix> |
+| TF_STATE_SA | sttfstate |
 | ADMIN_PRINCIPAL_ID | Your AAD object ID |
 | ALERT_EMAIL | Your email |
 
@@ -343,4 +349,4 @@ See **docs/architecture.md** for:
 - Component map  
 - Identity model  
 - Request flow  
-- ADRs (architecture decision records)  
+- ADRs  
