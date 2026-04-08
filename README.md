@@ -57,31 +57,40 @@ flowchart LR
 
 ## 2. AKS + VNet + Private Endpoints Layout
 
-2. AKS + VNet + Private Endpoints Layout
+```mermaid
 flowchart TB
+    Client["Client"]
+    SBTopic["Service Bus Topic"]
+    
+    subgraph AKS_Cluster["AKS Private Cluster"]
+        ORCH["Orchestrator Pod"]
+        RES["Research Agent Pod"]
+        ANA["Analysis Agent Pod"]
+        WRI["Writer Agent Pod"]
+    end
+    
+    subgraph Private_Endpoints["Private Endpoints"]
+        PEP_SB["Service Bus PE"]
+        PEP_KV["Key Vault PE"]
+        PEP_AOAI["Azure OpenAI PE"]
+    end
 
-Client["Client"] APIM["API Management"]
-
-ORCH["Orchestrator Pod"] RES["Research Agent Pod"] ANA["Analysis Agent Pod"] WRI["Writer Agent Pod"]
-
-SBTopic["Service Bus Topic"]
-
-PEP_SB["Service Bus Private Endpoint"] PEP_KV["Key Vault Private Endpoint"] PEP_AOAI["Azure OpenAI Private Endpoint"]
-
-subgraph AKS_Cluster["AKS Private Cluster"] ORCH RES ANA WRI end
-
-subgraph Private_Endpoints["Private Endpoints"] PEP_SB PEP_KV PEP_AOAI end
-
-Client --> APIM --> ORCH
-
-ORCH --> SBTopic SBTopic --> RES SBTopic --> ANA SBTopic --> WRI
-
-RES --> SBTopic ANA --> SBTopic WRI --> SBTopic
-
-ORCH --> PEP_AOAI ORCH --> PEP_KV RES --> PEP_KV ANA --> PEP_KV WRI --> PEP_KV
-
-SBTopic --> PEP_SB
-
+    Client --> SBTopic
+    SBTopic --> ORCH
+    ORCH --> SBTopic
+    SBTopic --> RES
+    SBTopic --> ANA
+    SBTopic --> WRI
+    RES --> SBTopic
+    ANA --> SBTopic
+    WRI --> SBTopic
+    ORCH --> PEP_AOAI
+    ORCH --> PEP_KV
+    RES --> PEP_KV
+    ANA --> PEP_KV
+    WRI --> PEP_KV
+    SBTopic --> PEP_SB
+```
 ---
 
 ## 3. Event‑Driven Sequence Diagram
