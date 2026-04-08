@@ -66,9 +66,9 @@ RES["Research Agent Pod"]
 ANA["Analysis Agent Pod"]
 WRI["Writer Agent Pod"]
 SBTopic["Service Bus Topic"]
-PEP_SB["Service Bus PE"]
-PEP_KV["Key Vault PE"]
-PEP_AOAI["Azure OpenAI PE"]
+PEP_SB["Service Bus Private Endpoint"]
+PEP_KV["Key Vault Private Endpoint"]
+PEP_AOAI["Azure OpenAI Private Endpoint"]
 
 subgraph VNET["Azure Virtual Network"]
     subgraph AKS["AKS Private Cluster"]
@@ -82,7 +82,7 @@ subgraph VNET["Azure Virtual Network"]
         WRI --> SBTopic
     end
 
-    subgraph PrivateEPs["Private Endpoints"]
+    subgraph PrivateEndpoints["Private Endpoints"]
         PEP_SB
         PEP_KV
         PEP_AOAI
