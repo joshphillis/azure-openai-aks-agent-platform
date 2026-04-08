@@ -59,29 +59,34 @@ flowchart LR
 
 flowchart TB
 
-subgraph VNET["Azure Virtual Network"]
-subgraph AKS["AKS Private Cluster"]
+Client["Client"]
+APIM["API Management"]
 ORCH["Orchestrator Pod"]
 RES["Research Agent Pod"]
 ANA["Analysis Agent Pod"]
 WRI["Writer Agent Pod"]
 SBTopic["Service Bus Topic"]
-
-ORCH --> SBTopic
-SBTopic --> RES
-SBTopic --> ANA
-SBTopic --> WRI
-
-RES --> SBTopic
-ANA --> SBTopic
-WRI --> SBTopic
-end
-
-subgraph PrivateEPs["Private Endpoints"]
 PEP_SB["Service Bus PE"]
 PEP_KV["Key Vault PE"]
 PEP_AOAI["Azure OpenAI PE"]
-end
+
+subgraph VNET["Azure Virtual Network"]
+    subgraph AKS["AKS Private Cluster"]
+        ORCH --> SBTopic
+        SBTopic --> RES
+        SBTopic --> ANA
+        SBTopic --> WRI
+
+        RES --> SBTopic
+        ANA --> SBTopic
+        WRI --> SBTopic
+    end
+
+    subgraph PrivateEPs["Private Endpoints"]
+        PEP_SB
+        PEP_KV
+        PEP_AOAI
+    end
 end
 
 ORCH --> PEP_AOAI
@@ -92,7 +97,7 @@ WRI --> PEP_KV
 
 SBTopic --> PEP_SB
 
-Client["Client"] --> APIM["API Management"]
+Client --> APIM
 APIM --> ORCH
 
 ---
