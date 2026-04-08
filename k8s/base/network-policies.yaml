@@ -1,0 +1,73 @@
+###############################################################################
+# k8s/base/network-policies.yaml
+#
+# Pod-level zero-trust networking.
+# Default deny all, then allow only what each agent actually needs.
+###############################################################################
+
+---
+# Default deny all ingress + egress in the agents namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: agents
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# Orchestrator: allow ingress on 8080, egress to Service Bus + OpenAI (via private endpoints)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-orchestrator
+  namespace: agents
+spec:
+  podSelector:
+    matchLabels:
+      app: orchestrator
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: 8080
+  egress:
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+    # Azure private endpoints (Key Vault, Service Bus, OpenAI) — all on 443
+    - ports:
+        - port: 443
+
+---
+# Worker agents: no ingress needed (they pull from Service Bus)
+# Egress: DNS + private endpoints only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-workers
+  namespace: agents
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: [research-agent, analysis-agent, writer-agent]
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Health probes from kubelet (node CIDR) — needed for liveness/readiness
+    - ports:
+        - port: 8080
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+    - ports:
+        - port: 443

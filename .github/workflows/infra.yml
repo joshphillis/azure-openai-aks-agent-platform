@@ -1,0 +1,290 @@
+###############################################################################
+# .github/workflows/infra.yml
+#
+# Terraform pipeline for infra/environments/dev
+#
+# On PR:    validate → security-scan → plan → post plan comment to PR
+# On merge: validate → security-scan → plan → manual approval gate → apply → smoke test
+###############################################################################
+
+name: infra
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra.yml"
+
+permissions:
+  id-token: write       # Required for OIDC login to Azure
+  contents: read
+  pull-requests: write  # Required to post plan comment
+
+env:
+  TF_VERSION: "1.7.4"
+  TF_WORKING_DIR: infra/environments/dev
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_USE_OIDC: "true"   # No client secret — OIDC federated login
+
+defaults:
+  run:
+    working-directory: infra/environments/dev
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: validate — runs on every PR and push
+  # ---------------------------------------------------------------------------
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Az login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: terraform init
+        run: terraform init -backend=false
+
+      - name: terraform fmt check
+        run: terraform fmt -check -recursive ../../
+
+      - name: terraform validate
+        run: terraform validate
+
+      - name: Install tflint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      - name: tflint
+        run: |
+          tflint --init
+          tflint --recursive
+
+  # ---------------------------------------------------------------------------
+  # Job 2: security-scan — Checkov + tfsec
+  # ---------------------------------------------------------------------------
+  security-scan:
+    name: security-scan
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: infra/
+          framework: terraform
+          soft_fail: false
+          skip_check: CKV_AZURE_131  # AKS local accounts — disabled intentionally via local_account_disabled
+
+      - name: tfsec
+        uses: aquasecurity/tfsec-action@v1
+        with:
+          working_directory: infra/
+          soft_fail: false
+
+  # ---------------------------------------------------------------------------
+  # Job 3: plan — saves planfile as artifact
+  # ---------------------------------------------------------------------------
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    needs: security-scan
+    outputs:
+      plan_exitcode: ${{ steps.plan.outputs.exitcode }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false   # Needed to capture exit code cleanly
+
+      - name: Az login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: terraform init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=dev.terraform.tfstate"
+
+      - name: terraform plan
+        id: plan
+        run: |
+          terraform plan \
+            -var="admin_principal_id=${{ secrets.ADMIN_PRINCIPAL_ID }}" \
+            -var="alert_email=${{ secrets.ALERT_EMAIL }}" \
+            -out=tfplan \
+            -detailed-exitcode \
+            2>&1 | tee plan_output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-dev
+          path: |
+            ${{ env.TF_WORKING_DIR }}/tfplan
+            ${{ env.TF_WORKING_DIR }}/plan_output.txt
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Job 4: plan-comment — posts plan to PR (PR only)
+  # ---------------------------------------------------------------------------
+  plan-comment:
+    name: plan-comment
+    runs-on: ubuntu-latest
+    needs: plan
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-dev
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Post plan to PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync(
+              '${{ env.TF_WORKING_DIR }}/plan_output.txt', 'utf8'
+            );
+            const truncated = planOutput.length > 60000
+              ? planOutput.slice(0, 60000) + '\n\n...truncated'
+              : planOutput;
+            const body = `### Terraform plan — dev\n\`\`\`hcl\n${truncated}\n\`\`\``;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+  # ---------------------------------------------------------------------------
+  # Job 5: apply — merge to main only, requires manual approval
+  # Configure a GitHub Environment named "dev" with a required reviewer.
+  # ---------------------------------------------------------------------------
+  apply:
+    name: apply
+    runs-on: ubuntu-latest
+    needs: plan
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: dev    # <-- GitHub Environment gate lives here
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Az login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: terraform init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=dev.terraform.tfstate"
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-dev
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: terraform apply
+        run: terraform apply -auto-approve tfplan
+
+  # ---------------------------------------------------------------------------
+  # Job 6: smoke-test — verifies the cluster and key services are reachable
+  # ---------------------------------------------------------------------------
+  smoke-test:
+    name: smoke-test
+    runs-on: ubuntu-latest
+    needs: apply
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Az login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group rg-aiplatform-dev \
+            --name aks-aiplatform-dev \
+            --overwrite-existing
+
+      - name: AKS API server reachable
+        run: kubectl get nodes
+
+      - name: Key Vault reachable (via CLI)
+        run: |
+          az keyvault secret list \
+            --vault-name kv-aiplatform-dev \
+            --query "[].name" -o tsv
+
+      - name: Service Bus namespace exists
+        run: |
+          az servicebus namespace show \
+            --resource-group rg-aiplatform-dev \
+            --name sb-aiplatform-dev \
+            --query "provisioningState" -o tsv | grep -i succeeded
+
+      - name: OpenAI account exists
+        run: |
+          az cognitiveservices account show \
+            --resource-group rg-aiplatform-dev \
+            --name aoai-aiplatform-dev \
+            --query "provisioningState" -o tsv | grep -i succeeded

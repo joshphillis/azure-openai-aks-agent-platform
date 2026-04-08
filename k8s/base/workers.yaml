@@ -1,0 +1,304 @@
+---
+# ─── Research Agent ──────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: research-agent
+  namespace: agents
+  labels:
+    app: research-agent
+    workload: ai-agents
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: research-agent
+  template:
+    metadata:
+      labels:
+        app: research-agent
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: sa-research-agent
+      imagePullSecrets:
+        - name: acr-secret
+      tolerations:
+        - key: "workload"
+          operator: "Equal"
+          value: "ai-agents"
+          effect: "NoSchedule"
+      nodeSelector:
+        workload: ai-agents
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: "spc-research-agent"
+      containers:
+        - name: research-agent
+          image: craiplatformdevjp001.azurecr.io/research-agent:latest
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: secrets-store
+              mountPath: "/mnt/secrets"
+              readOnly: true
+          env:
+            - name: AZURE_OPENAI_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: openai-endpoint
+            - name: AZURE_OPENAI_DEPLOYMENT
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: openai-gpt4o-deployment
+            - name: AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: openai-embeddings-deployment
+            - name: SERVICEBUS_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: servicebus-namespace
+            - name: SERVICEBUS_TOPIC
+              value: "research-tasks"
+            - name: SERVICEBUS_SUBSCRIPTION
+              value: "sub-research-agent"
+            - name: AGENT_NAME
+              value: "research-agent"
+            - name: LOG_LEVEL
+              value: "INFO"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "2000m"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop: ["ALL"]
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+
+---
+# ─── Analysis Agent ──────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analysis-agent
+  namespace: agents
+  labels:
+    app: analysis-agent
+    workload: ai-agents
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analysis-agent
+  template:
+    metadata:
+      labels:
+        app: analysis-agent
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: sa-analysis-agent
+      imagePullSecrets:
+        - name: acr-secret
+      tolerations:
+        - key: "workload"
+          operator: "Equal"
+          value: "ai-agents"
+          effect: "NoSchedule"
+      nodeSelector:
+        workload: ai-agents
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: "spc-analysis-agent"
+      containers:
+        - name: analysis-agent
+          image: craiplatformdevjp001.azurecr.io/analysis-agent:latest
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: secrets-store
+              mountPath: "/mnt/secrets"
+              readOnly: true
+          env:
+            - name: AZURE_OPENAI_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: openai-endpoint
+            - name: AZURE_OPENAI_DEPLOYMENT
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: openai-gpt4o-deployment
+            - name: SERVICEBUS_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: servicebus-namespace
+            - name: SERVICEBUS_TOPIC
+              value: "analysis-tasks"
+            - name: SERVICEBUS_SUBSCRIPTION
+              value: "sub-analysis-agent"
+            - name: AGENT_NAME
+              value: "analysis-agent"
+            - name: LOG_LEVEL
+              value: "INFO"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop: ["ALL"]
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+
+---
+# ─── Writer Agent ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: writer-agent
+  namespace: agents
+  labels:
+    app: writer-agent
+    workload: ai-agents
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: writer-agent
+  template:
+    metadata:
+      labels:
+        app: writer-agent
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: sa-writer-agent
+      imagePullSecrets:
+        - name: acr-secret
+      tolerations:
+        - key: "workload"
+          operator: "Equal"
+          value: "ai-agents"
+          effect: "NoSchedule"
+      nodeSelector:
+        workload: ai-agents
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: "spc-writer-agent"
+      containers:
+        - name: writer-agent
+          image: craiplatformdevjp001.azurecr.io/writer-agent:latest
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: secrets-store
+              mountPath: "/mnt/secrets"
+              readOnly: true
+          env:
+            - name: AZURE_OPENAI_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: openai-endpoint
+            - name: AZURE_OPENAI_DEPLOYMENT
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: openai-gpt4o-deployment
+            - name: SERVICEBUS_NAMESPACE
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: servicebus-namespace
+            - name: SERVICEBUS_TOPIC
+              value: "writer-tasks"
+            - name: SERVICEBUS_SUBSCRIPTION
+              value: "sub-writer-agent"
+            - name: AGENT_NAME
+              value: "writer-agent"
+            - name: LOG_LEVEL
+              value: "INFO"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop: ["ALL"]
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault

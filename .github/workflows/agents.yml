@@ -1,0 +1,220 @@
+###############################################################################
+# .github/workflows/agents.yml
+#
+# Build and deploy pipeline for agent container images.
+# Triggers only when agent code changes — completely independent of infra.yml.
+#
+# On PR:    build + scan each changed agent image (no push)
+# On merge: build → push to ACR → update image tag in k8s/overlays/dev → Flux reconciles
+###############################################################################
+
+name: agents
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agents/**"
+      - ".github/workflows/agents.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "agents/**"
+      - ".github/workflows/agents.yml"
+
+permissions:
+  id-token: write
+  contents: write   # Needed to commit updated image tags back to the repo
+  pull-requests: write
+
+env:
+  ACR_NAME: craiplatformdev
+  ACR_LOGIN_SERVER: craiplatformdev.azurecr.io
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Detect which agents actually changed — avoids rebuilding all 4 on every push
+  # ---------------------------------------------------------------------------
+  detect-changes:
+    name: detect-changes
+    runs-on: ubuntu-latest
+    outputs:
+      orchestrator: ${{ steps.changes.outputs.orchestrator }}
+      research-agent: ${{ steps.changes.outputs.research-agent }}
+      analysis-agent: ${{ steps.changes.outputs.analysis-agent }}
+      writer-agent: ${{ steps.changes.outputs.writer-agent }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect changed agents
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            orchestrator:
+              - 'agents/orchestrator/**'
+            research-agent:
+              - 'agents/research-agent/**'
+            analysis-agent:
+              - 'agents/analysis-agent/**'
+            writer-agent:
+              - 'agents/writer-agent/**'
+
+  # ---------------------------------------------------------------------------
+  # Build job — one matrix entry per agent
+  # On PR: build + scan only. On merge: build + push.
+  # ---------------------------------------------------------------------------
+  build:
+    name: build (${{ matrix.agent }})
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs[matrix.agent] == 'true'
+
+    strategy:
+      matrix:
+        agent: [orchestrator, research-agent, analysis-agent, writer-agent]
+      fail-fast: false   # A failure in one agent doesn't cancel others
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: tag
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          echo "tag=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "image=${{ env.ACR_LOGIN_SERVER }}/${{ matrix.agent }}:${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Az login (OIDC) — merge only
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login — merge only
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build image
+        uses: docker/build-push-action@v5
+        with:
+          context: agents/${{ matrix.agent }}
+          push: false   # Always build; push separately below
+          tags: ${{ steps.tag.outputs.image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true    # Load into local daemon for scan
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.tag.outputs.image }}
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Push to ACR — merge only
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: docker push ${{ steps.tag.outputs.image }}
+
+      # Tag as 'latest' for the dev overlay (Flux watches this file)
+      - name: Tag as latest — merge only
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          docker tag ${{ steps.tag.outputs.image }} \
+            ${{ env.ACR_LOGIN_SERVER }}/${{ matrix.agent }}:latest
+          docker push ${{ env.ACR_LOGIN_SERVER }}/${{ matrix.agent }}:latest
+
+      - name: Output image tag
+        id: output
+        run: echo "image_tag=${{ steps.tag.outputs.tag }}" >> $GITHUB_OUTPUT
+
+  # ---------------------------------------------------------------------------
+  # Update image tags in k8s/overlays/dev — Flux picks up the commit and deploys
+  # ---------------------------------------------------------------------------
+  update-manifests:
+    name: update-manifests
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: dev
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Update image tags in kustomization
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          cd k8s/overlays/dev
+
+          # Use kustomize to set the new image tags
+          kustomize edit set image \
+            ${{ env.ACR_LOGIN_SERVER }}/orchestrator=${{ env.ACR_LOGIN_SERVER }}/orchestrator:${SHORT_SHA} \
+            ${{ env.ACR_LOGIN_SERVER }}/research-agent=${{ env.ACR_LOGIN_SERVER }}/research-agent:${SHORT_SHA} \
+            ${{ env.ACR_LOGIN_SERVER }}/analysis-agent=${{ env.ACR_LOGIN_SERVER }}/analysis-agent:${SHORT_SHA} \
+            ${{ env.ACR_LOGIN_SERVER }}/writer-agent=${{ env.ACR_LOGIN_SERVER }}/writer-agent:${SHORT_SHA}
+
+      - name: Commit and push updated tags
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          git add k8s/overlays/dev/kustomization.yaml
+          git diff --staged --quiet || \
+            git commit -m "chore: update agent images to ${SHORT_SHA} [skip ci]"
+          git push
+
+  # ---------------------------------------------------------------------------
+  # Verify deployment — waits for Flux to reconcile and pods to be Ready
+  # ---------------------------------------------------------------------------
+  verify-deployment:
+    name: verify-deployment
+    runs-on: ubuntu-latest
+    needs: update-manifests
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Az login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group rg-aiplatform-dev \
+            --name aks-aiplatform-dev \
+            --overwrite-existing
+
+      - name: Wait for Flux reconciliation
+        run: |
+          kubectl wait kustomization/agents \
+            --for=condition=Ready \
+            --namespace=flux-system \
+            --timeout=300s
+
+      - name: Wait for all agent pods to be Ready
+        run: |
+          kubectl rollout status deployment/orchestrator -n agents --timeout=180s
+          kubectl rollout status deployment/research-agent -n agents --timeout=180s
+          kubectl rollout status deployment/analysis-agent -n agents --timeout=180s
+          kubectl rollout status deployment/writer-agent -n agents --timeout=180s
+
+      - name: Print final pod state
+        run: kubectl get pods -n agents -o wide

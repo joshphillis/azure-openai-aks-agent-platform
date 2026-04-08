@@ -1,0 +1,21 @@
+###############################################################################
+# k8s/flux/gitrepository.yaml
+#
+# Tells Flux where the source of truth is.
+# Replace <your-github-org> with your actual GitHub username.
+###############################################################################
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: azure-ai-platform
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/<your-github-org>/azure-ai-platform
+  ref:
+    branch: main
+  secretRef:
+    name: flux-github-token   # kubectl create secret generic flux-github-token \
+                              #   --namespace flux-system \
+                              #   --from-literal=username=git \
+                              #   --from-literal=password=<github-pat>

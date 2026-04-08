@@ -1,0 +1,38 @@
+###############################################################################
+# k8s/flux/kustomization.yaml
+#
+# Tells Flux which path in the repo to reconcile and how often.
+# Flux watches k8s/overlays/dev — any commit there triggers a re-apply.
+###############################################################################
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: agents
+  namespace: flux-system
+spec:
+  interval: 2m
+  retryInterval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: azure-ai-platform
+  path: ./k8s/overlays/dev
+  prune: true          # Deletes resources removed from Git
+  wait: true           # Flux waits for all resources to be Ready before marking healthy
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: orchestrator
+      namespace: agents
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: research-agent
+      namespace: agents
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: analysis-agent
+      namespace: agents
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: writer-agent
+      namespace: agents
